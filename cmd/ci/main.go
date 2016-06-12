@@ -10,6 +10,8 @@ import (
 	"gopkg.in/redis.v3"
 )
 
+var version string
+
 func getConnection(C *cli.Context) *redis.Client {
 	return client.GetConnection(C.GlobalString("server"), C.GlobalString("password"), int64(C.GlobalInt("database-id")))
 }
@@ -131,6 +133,12 @@ func main() {
 			Value:  0,
 			EnvVar: "CI_DATABASE_ID",
 		},
+	}
+
+	if version == "" {
+		app.Version = "devel"
+	} else {
+		app.Version = version
 	}
 
 	app.Run(os.Args)
