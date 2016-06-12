@@ -5,80 +5,71 @@ import (
 	"os"
 	"strings"
 
+	"github.com/dtwood/ci/client"
 	"github.com/urfave/cli"
 	"gopkg.in/redis.v3"
 )
 
-func getConnection() *redis.Client {
-	client := redis.NewClient(&redis.Options{
-		Addr:     "localhost:6379",
-		Password: "", // no password set
-		DB:       0,  // use default DB
-	})
-
-	return client
+func getConnection(C *cli.Context) *redis.Client {
+	return client.GetConnection(C.GlobalString("server"), C.GlobalString("password"), int64(C.GlobalInt("database-id")))
 }
 
-func list(c *cli.Context) error {
-	client := getConnection()
-	defer client.Close()
+func jobsList(C *cli.Context) error {
+	cl := getConnection(C)
+	defer cl.Close()
 
-	jobs, err := client.LRange("jobs", 0, -1).Result()
+	res, err := client.ListTasks(cl)
 	if err != nil {
-		fmt.Println("Fatal error:", err)
-		return nil
+		return cli.NewExitError(fmt.Sprint("Error:", err), 1)
 	}
 
-	fmt.Println("jobs:", "["+strings.Join(jobs, ", ")+"]")
+	fmt.Println(strings.Join(res, "\n"))
+
 	return nil
 }
 
-func add(C *cli.Context) error {
+func jobsAdd(C *cli.Context) error {
+	cl := getConnection(C)
+	defer cl.Close()
+
 	if !C.Args().Present() {
-		fmt.Println("No command given")
-		return nil
+		return cli.NewExitError("No command specified", 2)
 	}
 
-	client := getConnection()
-	defer client.Close()
-
-	cmd := C.Args().First()
-
-	count, err := client.LPush("jobs", cmd).Result()
+	count, err := client.Add(cl, C.Args().First())
 	if err != nil {
-		fmt.Println("Fatal error:", err)
-		return nil
+		return cli.NewExitError(fmt.Sprint("Error:", err), 1)
 	}
 
-	fmt.Println("Added", cmd)
-	fmt.Println(count, "jobs in queue")
+	fmt.Println("Queued:", count)
 
 	return nil
 }
 
-func run(C *cli.Context) error {
-	client := getConnection()
-	defer client.Close()
+func jobsRun(C *cli.Context) error {
+	cl := getConnection(C)
+	defer cl.Close()
 
-	job, err := client.BRPopLPush("jobs", "processing", 0).Result()
+	res, err := client.Run(cl)
 	if err != nil {
-		fmt.Println("Fatal error:", err)
-		return nil
+		return cli.NewExitError(fmt.Sprint("Error:", err), 1)
 	}
 
-	fmt.Println("running:", job)
+	fmt.Println("Run:", res)
 
-	removed, err := client.LRem("processing", 1, job).Result()
+	return nil
+}
+
+func botsList(C *cli.Context) error {
+	cl := getConnection(C)
+	defer cl.Close()
+
+	res, err := client.List(cl)
 	if err != nil {
-		fmt.Println("Fatal error:", err)
-		return nil
+		return cli.NewExitError(fmt.Sprint("Error:", err), 1)
 	}
 
-	if removed != 1 {
-		panic("no items removed after processing")
-	}
-
-	fmt.Println("run", job)
+	fmt.Println(strings.Join(res, "\n"))
 
 	return nil
 }
@@ -89,19 +80,56 @@ func main() {
 	app.EnableBashCompletion = true
 	app.Commands = []cli.Command{
 		{
-			Name:   "list",
-			Usage:  "list all pending tasks",
-			Action: list,
+			Name:    "jobs",
+			Aliases: []string{"j"},
+			Subcommands: []cli.Command{
+				{
+					Name:    "list",
+					Aliases: []string{"l"},
+					Usage:   "list all pending tasks",
+					Action:  jobsList,
+				},
+				{
+					Name:    "add",
+					Aliases: []string{"a"},
+					Usage:   "add a new task",
+					Action:  jobsAdd,
+				},
+				{
+					Name:    "run",
+					Aliases: []string{"r"},
+					Usage:   "run the oldest task",
+					Action:  jobsRun,
+				},
+			},
 		},
 		{
-			Name:   "add",
-			Usage:  "add a new task",
-			Action: add,
+			Name: "bots",
+			Subcommands: []cli.Command{
+				{
+					Name:    "list",
+					Aliases: []string{"l"},
+					Usage:   "list all connected build bots",
+					Action:  botsList,
+				},
+			},
 		},
-		{
-			Name:   "run",
-			Usage:  "run the oldest task",
-			Action: run,
+	}
+	app.Flags = []cli.Flag{
+		cli.StringFlag{
+			Name:   "server",
+			Value:  "localhost:6379",
+			EnvVar: "CI_SERVER",
+		},
+		cli.StringFlag{
+			Name:   "password",
+			Value:  "",
+			EnvVar: "CI_PASSWORD",
+		},
+		cli.IntFlag{
+			Name:   "database-id",
+			Value:  0,
+			EnvVar: "CI_DATABASE_ID",
 		},
 	}
 
