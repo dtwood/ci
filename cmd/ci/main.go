@@ -21,8 +21,15 @@ func getConnection() *redis.Client {
 
 func list(c *cli.Context) error {
 	client := getConnection()
-	jobs := client.LRange("jobs", 0, -1).Val()
-	fmt.Println("[" + strings.Join(jobs, ", ") + "]")
+	defer client.Close()
+
+	jobs, err := client.LRange("jobs", 0, -1).Result()
+	if err != nil {
+		fmt.Println("Fatal error:", err)
+		return nil
+	}
+
+	fmt.Println("jobs:", "["+strings.Join(jobs, ", ")+"]")
 	return nil
 }
 
@@ -33,18 +40,45 @@ func add(C *cli.Context) error {
 	}
 
 	client := getConnection()
-	client.RPush("jobs", C.Args().First())
+	defer client.Close()
+
+	cmd := C.Args().First()
+
+	count, err := client.LPush("jobs", cmd).Result()
+	if err != nil {
+		fmt.Println("Fatal error:", err)
+		return nil
+	}
+
+	fmt.Println("Added", cmd)
+	fmt.Println(count, "jobs in queue")
+
 	return nil
 }
 
 func run(C *cli.Context) error {
 	client := getConnection()
-	job, err := client.BLPop(0, "jobs").Result()
+	defer client.Close()
+
+	job, err := client.BRPopLPush("jobs", "processing", 0).Result()
 	if err != nil {
-		panic(err)
+		fmt.Println("Fatal error:", err)
+		return nil
 	}
 
-	fmt.Println("running:", job[1])
+	fmt.Println("running:", job)
+
+	removed, err := client.LRem("processing", 1, job).Result()
+	if err != nil {
+		fmt.Println("Fatal error:", err)
+		return nil
+	}
+
+	if removed != 1 {
+		panic("no items removed after processing")
+	}
+
+	fmt.Println("run", job)
 
 	return nil
 }
