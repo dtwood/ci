@@ -79,7 +79,6 @@ func botsList(C *cli.Context) error {
 func main() {
 	app := cli.NewApp()
 
-	app.EnableBashCompletion = true
 	app.Commands = []cli.Command{
 		{
 			Name:    "jobs",
@@ -117,6 +116,7 @@ func main() {
 			},
 		},
 	}
+	app.EnableBashCompletion = true
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
 			Name:   "server",
